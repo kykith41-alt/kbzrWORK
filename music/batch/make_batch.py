@@ -208,6 +208,20 @@ def render(P,path):
             n=len(x); ir=lp(r2.standard_normal(int(2.0*SR)),3500)*np.exp(-np.arange(int(2.0*SR))/SR*3.4)
             wet=fftconvolve(x,ir)[:n]; wet=wet/np.abs(wet).max()*0.25
             add('dark',b*BAR-n/SR,wet[::-1],0.0)
+    # ---- user's sound clip (cleaned by prep_sample.py), placed at key moments with tempo-synced echo
+    if P.get('sample'):
+        smp,_sr=sf.read(P['sample']); smp=smp if smp.ndim==2 else np.stack([smp,smp],1)
+        starts_=[b for b in range(NB) if b==0 or secs[b]!=secs[b-1]]
+        times=[1*BAR+2*BEAT]                                   # intro, after the bell
+        times+=[b*BAR for b in starts_[1:]]                    # every section start incl. outro
+        times+=[b*BAR+2*BEAT for b,s_ in enumerate(secs) if s_.startswith('B') and b%4==2]   # mid-B answers
+        for tm in times:
+            if 'smp' not in TR: TR['smp']=np.zeros((N,2))
+            i=int(tm*SR); seg=smp[:max(N-i,0)]; TR['smp'][i:i+len(seg)]+=seg*0.5
+        D=int(BEAT*0.75*SR); dry=TR['smp'].copy(); fb=0.48
+        for k in range(1,7):
+            e=lp(dry,max(3800-k*450,1100),2)*fb**k; e=e[:, ::-1] if k%2 else e
+            TR['smp'][D*k:]+=e[:N-D*k]
     # ---- mix
     tt=np.arange(N)/SR; barn=np.minimum((tt//BAR).astype(int),NB-1)
     for k in ('igtr',):
@@ -218,7 +232,10 @@ def render(P,path):
     pump=1-depth*np.exp(-((tt%BEAT))/0.11)
     for k in ('organ','gtr','choir','bass','bell'):
         if k in TR: TR[k]*=pump[:,None]
-    G={'organ':1.0,'bass':0.8,'lead':P.get('lead_gain',1.0),'fx':0.7,'kick':P.get('drum_gain',0.65),'snare':0.5*P.get('drum_gain',0.65)/0.65,'hat':0.55,'gtr':0.7,'igtr':0.9,'choir':0.75,'bell':0.5,'dark':P.get('dark_gain',1.0)}
+    G={'organ':1.0,'bass':0.8,'lead':P.get('lead_gain',1.0),'fx':0.7,'kick':P.get('drum_gain',0.65),'snare':0.5*P.get('drum_gain',0.65)/0.65,'hat':0.55,'gtr':0.7,'igtr':0.9,'choir':0.75,'bell':0.5,'dark':P.get('dark_gain',1.0),'smp':P.get('sample_gain',0.9)}
+    if 'smp' in TR:   # tame the clip's peaks so it never drives the master limiter
+        base_pk=np.abs(sum(TR[k]*g for k,g in G.items() if k in TR and k!='smp')).max()
+        thr=0.3*base_pk/max(G['smp'],1e-6); TR['smp']=np.tanh(TR['smp']/thr)*thr
     mix=sum(TR[k]*g for k,g in G.items() if k in TR)
     gate=np.ones(N)
     def cut(a_,b_):
@@ -231,7 +248,7 @@ def render(P,path):
     def reverb(x,dec,m):
         n=int(dec*SR); t=np.arange(n)/SR; ir=np.stack([lp(rng.standard_normal(n),4000)*np.exp(-t*6.9/dec) for _ in range(2)],1)
         w=np.stack([fftconvolve(x[:,c],ir[:,c])[:len(x)] for c in range(2)],1); return w*m/np.sqrt((ir**2).sum()/2)
-    send=sum(TR[k]*g for k,g in (('organ',0.35),('lead',0.5),('snare',0.4),('fx',0.4),('gtr',0.3),('igtr',0.6),('choir',0.5),('bell',0.6),('dark',0.45)) if k in TR)
+    send=sum(TR[k]*g for k,g in (('organ',0.35),('lead',0.5),('snare',0.4),('fx',0.4),('gtr',0.3),('igtr',0.6),('choir',0.5),('bell',0.6),('dark',0.45),('smp',0.55)) if k in TR)
     mix=mix*gate[:,None]
     if P.get('dark'):
         s32=int(S16*SR/2)
@@ -274,6 +291,11 @@ TRACKS={
     layers={'organ','gtr','choir','drops'},form=[('intro',4),('A1',8),('B1',8),('A2',8),('B2',8),('outro',4)],
     drum_secs=('B1','A2','B2'),bass_pat=[(0,8,0),(10,6,0)],gtr_pat=[(0,0),(4,1),(8,2),(12,3)],
     kick_pat=([0],[0,10]),snare_pat=(8,),pump=(0.3,0.5),shaker=False,verb=4.2,lp=4500,wow=0.4,fade=12,b_high=False,drum_gain=0.55),
+ '5_noch_dark_sample': dict(seed=505,dark=True,dark_gain=1.0,sample='sample_clean.wav',sample_gain=0.9,
+    bpm=124,tonic=48,progA='i-VI-iv-V',progB='i-VII-VI-V',harm_rhythm=2,density=0.65,
+    layers={'organ','gtr','choir','trem','drops','bells'},bell_secs=('A2',),form=STD_FORM,drum_secs=('A1','B1','A2','B2'),
+    bass_pat=[(0,3,0),(3,3,0),(6,2,12)],gtr_pat=[(0,0),(2,2),(4,1),(6,2),(8,3),(10,2),(12,1),(14,2)],
+    kick_pat=([0,6,10],[0,6,10,13]),snare_pat=(4,12),pump=(0.5,0.7),shaker=True,tape_stop_bar=19,drum_gain=0.75),
  '5_noch_dark': dict(seed=505,dark=True,dark_gain=1.0,
     bpm=124,tonic=48,progA='i-VI-iv-V',progB='i-VII-VI-V',harm_rhythm=2,density=0.65,
     layers={'organ','gtr','choir','trem','drops','bells'},bell_secs=('A2',),form=STD_FORM,drum_secs=('A1','B1','A2','B2'),
