@@ -112,7 +112,8 @@ def render(P,path):
         if s_=='intro' and b==len([x for x in secs if x=='intro'])-1: add('fx',t0,L.swell(BAR),0,RZ)
     # melodies
     mel=[]; phrases={}
-    for s_name in set(secs):
+    # deterministic phrase-generation order (set() order depended on hash randomisation)
+    for s_name in sorted(set(secs),key=lambda x:(x[0] not in P.get('phrase_first','A'),x)):
         if s_name in('intro','outro','break'): continue
         prog=progB if s_name.startswith('B') else progA
         key=s_name[0]
@@ -234,8 +235,8 @@ def render(P,path):
         smp,_sr=sf.read(P['sample']); smp=smp if smp.ndim==2 else np.stack([smp,smp],1)
         starts_=[b for b in range(NB) if b==0 or secs[b]!=secs[b-1]]
         times=[1*BAR+2*BEAT]                                   # intro, after the bell
-        times+=[b*BAR for b in starts_[1:]]                    # every section start incl. outro
-        times+=[b*BAR+2*BEAT for b,s_ in enumerate(secs) if s_.startswith('B') and b%4==2]   # mid-B answers
+        times+=[b*BAR for b in starts_[1:] if secs[b] not in P.get('sample_skip',())]   # section starts incl. outro
+        if P.get('sample_midB',True): times+=[b*BAR+2*BEAT for b,s_ in enumerate(secs) if s_.startswith('B') and b%4==2]   # mid-B answers
         for tm in times:
             if 'smp' not in TR: TR['smp']=np.zeros((N,2))
             i=int(tm*SR); seg=smp[:max(N-i,0)]; TR['smp'][i:i+len(seg)]+=seg*0.5
@@ -325,6 +326,12 @@ TRACKS={
     layers={'organ','gtr','choir','drops'},form=[('intro',4),('A1',8),('B1',8),('A2',8),('B2',8),('outro',4)],
     drum_secs=('B1','A2','B2'),bass_pat=[(0,8,0),(10,6,0)],gtr_pat=[(0,0),(4,1),(8,2),(12,3)],
     kick_pat=([0],[0,10]),snare_pat=(8,),pump=(0.3,0.5),shaker=False,verb=4.2,lp=4500,wow=0.4,fade=12,b_high=False,drum_gain=0.55),
+ '5_noch_zvuk_less': dict(seed=505,dark=True,dark_gain=1.0,sample='sample_clean.wav',sample_gain=0.9,phrase_first='A',
+    sample_skip=('A1',),sample_midB=False,
+    bpm=124,tonic=48,progA='i-VI-iv-V',progB='i-VII-VI-V',harm_rhythm=2,density=0.65,
+    layers={'organ','gtr','choir','trem','drops','bells'},bell_secs=('A2',),form=STD_FORM,drum_secs=('A1','B1','A2','B2'),
+    bass_pat=[(0,3,0),(3,3,0),(6,2,12)],gtr_pat=[(0,0),(2,2),(4,1),(6,2),(8,3),(10,2),(12,1),(14,2)],
+    kick_pat=([0,6,10],[0,6,10,13]),snare_pat=(4,12),pump=(0.5,0.7),shaker=True,tape_stop_bar=19,drum_gain=0.75),
  '5_noch_v3': dict(seed=505,dark=True,dark_gain=1.0,no_risers=True,
     new_intro=True,pulse=False,side=0.15,lp=7500,presence=0.9,mid_boost=0.1,final_lp=8000,comp=True,target_rms_db=-13.5,
     bpm=124,tonic=48,progA='i-VI-iv-V',progB='i-VII-VI-V',harm_rhythm=2,density=0.65,
