@@ -73,6 +73,7 @@ def render(P,path):
         prog=progB if sec.startswith('B') else progA
         return prog[((b%2)*2+half)%4] if hr==2 else prog[b%4]
     lay=P['layers']
+    RZ=0.0 if P.get('no_risers') else 1.0
     for b,s_ in enumerate(secs):
         t0=b*BAR; first=(b==0 or secs[b-1]!=s_)
         for h in range(hr):
@@ -108,7 +109,7 @@ def render(P,path):
             if P.get('shaker'):
                 for st in range(16): add('hat',t0+st*S16+(0.01 if st%2 else 0),L.shaker(0.5 if st%2 else 0.25),0.2)
             for st in ((7,15) if b%2 else (15,)): add('snare',t0+st*S16,L.snare()*0.22,-0.15)
-        if s_=='intro' and b==len([x for x in secs if x=='intro'])-1: add('fx',t0,L.swell(BAR),0)
+        if s_=='intro' and b==len([x for x in secs if x=='intro'])-1: add('fx',t0,L.swell(BAR),0,RZ)
     # melodies
     mel=[]; phrases={}
     for s_name in set(secs):
@@ -187,8 +188,8 @@ def render(P,path):
             if s_=='outro' or (s_=='intro' and not P.get('new_intro')):
                 for k in (0,2): add('dark',b*BAR+k*BEAT,heart(),0,0.9)
         # static at intro + transitions
-        add('dark',0,static(2*BAR),0.2)
-        for b in starts[1:]: add('dark',b*BAR-BEAT,static(1.5*BEAT),-0.2)
+        add('dark',0,static(2*BAR),0.2,RZ)
+        for b in starts[1:]: add('dark',b*BAR-BEAT,static(1.5*BEAT),-0.2,RZ)
         # church-bell toll: intro start, every 4 bars in A2, outro
         for b,s_ in enumerate(secs):
             if (b==0) or (s_=='A2' and b%4==0) or (s_=='outro' and secs[b-1]!='outro'): add('dark',b*BAR,toll(T_),0.0,1.0)
@@ -197,7 +198,7 @@ def render(P,path):
             if s_.startswith('A') and b%2==1: add('dark',b*BAR+2*BEAT+2*S16,clang(T_+12),(-0.3,0.3)[(b//2)%2])
         # braams at B-section starts
         for b in starts:
-            if secs[b].startswith('B'): add('dark',b*BAR,braam(T_-12,2*BAR),0.0)
+            if secs[b].startswith('B'): add('dark',b*BAR,braam(T_-12,2*BAR),0.0,RZ)
         # whispers (wordless formant noise) in B sections
         for b,s_ in enumerate(secs):
             if s_.startswith('B') and b%2==0:
@@ -207,7 +208,7 @@ def render(P,path):
             ch=chord_at(secs[b],b,0); x=L.bell(ch[0]+12,2.0)+L.bell(ch[2]+12,2.0)
             n=len(x); ir=lp(r2.standard_normal(int(2.0*SR)),3500)*np.exp(-np.arange(int(2.0*SR))/SR*3.4)
             wet=fftconvolve(x,ir)[:n]; wet=wet/np.abs(wet).max()*0.25
-            add('dark',b*BAR-n/SR,wet[::-1],0.0)
+            add('dark',b*BAR-n/SR,wet[::-1],0.0,RZ)
     if P.get('new_intro') or P.get('pulse'):
         r3=np.random.default_rng(P['seed']+777); keep=L.rng; L.rng=r3
         if P.get('new_intro'):
@@ -216,7 +217,7 @@ def render(P,path):
                 for st in P['kick_pat'][b%2]: add('kick',b*BAR+st*S16,L.kick(),0,0.9)
                 for st in P['snare_pat']: add('snare',b*BAR+st*S16,L.snare(),0.1,0.9)
                 for st in range(0,16,2): add('hat',b*BAR+st*S16,L.hat(1 if st%4==2 else 0.6),-0.2)
-            for k in range(16): add('snare',3*BAR+k*S16,L.snare()*(0.15+0.6*k/15),0.0)
+            for k in range(16): add('snare',3*BAR+k*S16,L.snare()*(0.15+0.6*k/15),0.0,RZ)
             add('fx',0,L.drop(520,60,0.9),0.0,0.9)
         if P.get('pulse'):
             # 8th-note muted chord pulse for constant motion (like the reference's rhythm density)
@@ -324,6 +325,12 @@ TRACKS={
     layers={'organ','gtr','choir','drops'},form=[('intro',4),('A1',8),('B1',8),('A2',8),('B2',8),('outro',4)],
     drum_secs=('B1','A2','B2'),bass_pat=[(0,8,0),(10,6,0)],gtr_pat=[(0,0),(4,1),(8,2),(12,3)],
     kick_pat=([0],[0,10]),snare_pat=(8,),pump=(0.3,0.5),shaker=False,verb=4.2,lp=4500,wow=0.4,fade=12,b_high=False,drum_gain=0.55),
+ '5_noch_v3': dict(seed=505,dark=True,dark_gain=1.0,no_risers=True,
+    new_intro=True,pulse=False,side=0.15,lp=7500,presence=0.9,mid_boost=0.1,final_lp=8000,comp=True,target_rms_db=-13.5,
+    bpm=124,tonic=48,progA='i-VI-iv-V',progB='i-VII-VI-V',harm_rhythm=2,density=0.65,
+    layers={'organ','gtr','choir','trem','drops','bells'},bell_secs=('A2',),form=STD_FORM,drum_secs=('A1','B1','A2','B2'),
+    bass_pat=[(0,3,0),(3,3,0),(6,2,12)],gtr_pat=[(0,0),(2,2),(4,1),(6,2),(8,3),(10,2),(12,1),(14,2)],
+    kick_pat=([0,6,10],[0,6,10,13]),snare_pat=(4,12),pump=(0.5,0.7),shaker=True,tape_stop_bar=19,drum_gain=0.75),
  '5_noch_v2': dict(seed=505,dark=True,dark_gain=1.0,sample='sample_clean.wav',sample_gain=0.9,
     new_intro=True,pulse=True,pulse_gain=1.3,side=0.15,lp=7500,presence=0.9,mid_boost=0.1,final_lp=8000,comp=True,target_rms_db=-13.5,
     bpm=124,tonic=48,progA='i-VI-iv-V',progB='i-VII-VI-V',harm_rhythm=2,density=0.65,
