@@ -131,6 +131,83 @@ def render(P,path):
                 if ph: mel+=[((2*16+st)*S16,n-12,ln*S16,d) for st,n,ln,d in ph[:5] if st<32]
             b+=1
     mel.sort(); add('lead',0,L.lead(mel,N/SR),0.0)
+    # ---- dark sound design layer (separate RNG so the original melody/arrangement stay identical)
+    if P.get('dark'):
+        r2=np.random.default_rng(P['seed']+999)
+        def ph_(f): return np.cumsum(f)/SR
+        def drone(dur,root):
+            n=int(dur*SR); t=np.arange(n)/SR; s=np.zeros(n)
+            for m,g in ((root,1.0),(root+7,0.5),(root+12,0.35)):
+                for d in (-0.12,0.1): s+=g*(2*((ph_(np.full(n,m2f(m)*2**(d/12)))+r2.random())%1)-1)
+            cut=350+250*(0.5+0.5*np.sin(2*np.pi*t/9.0))
+            out=np.zeros(n); blk=4096
+            for i in range(0,n,blk): out[i:i+blk]=lp(s[i:i+blk+2048],float(cut[i]))[:len(out[i:i+blk])]
+            return out*0.12
+        def clang(m,dur=1.8):
+            n=int(dur*SR); t=np.arange(n)/SR; f=m2f(m)
+            s=np.sin(2*np.pi*f*t+2.2*np.exp(-t*2.5)*np.sin(2*np.pi*f*1.414*t))+0.6*np.sin(2*np.pi*f*2.76*t+1.5*np.exp(-t*4)*np.sin(2*np.pi*f*3.9*t))
+            return lp(s,3200)*np.exp(-t*2.2)*0.22
+        def toll(m,dur=4.0):
+            n=int(dur*SR); t=np.arange(n)/SR; f=m2f(m); s=np.zeros(n)
+            for ratio,amp,dec in ((0.5,0.6,0.6),(1.0,1.0,1.0),(1.19,0.7,1.4),(1.5,0.5,1.8),(2.0,0.6,2.2),(2.51,0.35,3.0),(2.98,0.3,3.5),(4.07,0.2,5)):
+                s+=amp*np.sin(2*np.pi*f*ratio*(1+0.0015*r2.standard_normal())*t)*np.exp(-t*dec)
+            return s*np.minimum(t/0.004,1)*0.16
+        def braam(root,dur):
+            n=int(dur*SR); t=np.arange(n)/SR; s=np.zeros(n)
+            for m in (root,root+3,root+7,root+12):
+                for d in (-0.2,0,0.18): s+=2*((ph_(np.full(n,m2f(m)*2**(d/12)))+r2.random())%1)-1
+            out=np.zeros(n); blk=4096
+            for i in range(0,n,blk):
+                fc=250+1600*min(i/n*2,1)**2*(1-max(0,(i/n-0.6)/0.4)); out[i:i+blk]=lp(s[i:i+blk+2048],fc,2)[:len(out[i:i+blk])]
+            return np.tanh(out*0.6)*np.minimum(t/0.15,1)*np.clip((dur-t)/0.8,0,1)*0.3
+        def whisper(dur=0.9,vowel=0):
+            n=int(dur*SR); t=np.arange(n)/SR; x=r2.standard_normal(n)
+            F=((700,1150,2600),(400,1700,2500),(300,900,2400))[vowel]
+            s=sum(bp(x,f*0.85,f*1.15)*g for f,g in zip(F,(1,0.7,0.4)))+hp(x,4000)*0.15
+            e=np.sin(np.pi*np.clip(t/dur,0,1))**2
+            return s*e*0.10
+        def heart(dur=0.6):
+            n=int(dur*SR); t=np.arange(n)/SR
+            th=lambda d: np.sin(2*np.pi*(120+60*np.exp(-np.clip(t-d,0,None)*30))*(t-d))*np.exp(-np.clip(t-d,0,None)*14)*(t>=d)
+            return (th(0)+0.7*th(0.16))*0.45
+        def static(dur):
+            n=int(dur*SR); t=np.arange(n)/SR; x=r2.standard_normal(n); out=np.zeros(n); blk=2048
+            for i in range(0,n,blk):
+                fc=800+2400*(0.5+0.5*np.sin(2*np.pi*i/SR*1.7)); out[i:i+blk]=bp(x[i:i+blk+512],fc*0.8,fc*1.25)[:len(out[i:i+blk])]
+            crack=(r2.random(n)<0.002)*r2.standard_normal(n)*4
+            return (out+lp(crack,4000))*np.sin(np.pi*t/dur)*0.07
+        T_=P['tonic']
+        starts=[b for b in range(NB) if b==0 or secs[b]!=secs[b-1]]
+        # drone under everything, swelling in intro / B sections / outro
+        dr=drone(NB*BAR+6,T_-12)
+        lvl=np.interp(np.arange(len(dr))/SR/BAR,np.arange(NB),[1.3 if s in('intro','outro') else 1.0 if s.startswith('B') else 0.6 for s in secs])
+        add('dark',0,dr*lvl,0)
+        # heartbeat in intro and outro
+        for b,s_ in enumerate(secs):
+            if s_ in('intro','outro'):
+                for k in (0,2): add('dark',b*BAR+k*BEAT,heart(),0,0.9)
+        # static at intro + transitions
+        add('dark',0,static(2*BAR),0.2)
+        for b in starts[1:]: add('dark',b*BAR-BEAT,static(1.5*BEAT),-0.2)
+        # church-bell toll: intro start, every 4 bars in A2, outro
+        for b,s_ in enumerate(secs):
+            if (b==0) or (s_=='A2' and b%4==0) or (s_=='outro' and secs[b-1]!='outro'): add('dark',b*BAR,toll(T_),0.0,1.0)
+        # metallic clangs on the "and" of beat 3 every 2nd bar in A sections
+        for b,s_ in enumerate(secs):
+            if s_.startswith('A') and b%2==1: add('dark',b*BAR+2*BEAT+2*S16,clang(T_+12),(-0.3,0.3)[(b//2)%2])
+        # braams at B-section starts
+        for b in starts:
+            if secs[b].startswith('B'): add('dark',b*BAR,braam(T_-12,2*BAR),0.0)
+        # whispers (wordless formant noise) in B sections
+        for b,s_ in enumerate(secs):
+            if s_.startswith('B') and b%2==0:
+                add('dark',b*BAR+BEAT*1.5+r2.random()*0.2,whisper(0.9,int(r2.integers(3))),float(r2.uniform(-0.6,0.6)))
+        # reversed swell of the next section's chord (reverse reverb) before each section change
+        for b in starts[1:]:
+            ch=chord_at(secs[b],b,0); x=L.bell(ch[0]+12,2.0)+L.bell(ch[2]+12,2.0)
+            n=len(x); ir=lp(r2.standard_normal(int(2.0*SR)),3500)*np.exp(-np.arange(int(2.0*SR))/SR*3.4)
+            wet=fftconvolve(x,ir)[:n]; wet=wet/np.abs(wet).max()*0.25
+            add('dark',b*BAR-n/SR,wet[::-1],0.0)
     # ---- mix
     tt=np.arange(N)/SR; barn=np.minimum((tt//BAR).astype(int),NB-1)
     for k in ('igtr',):
@@ -141,7 +218,7 @@ def render(P,path):
     pump=1-depth*np.exp(-((tt%BEAT))/0.11)
     for k in ('organ','gtr','choir','bass','bell'):
         if k in TR: TR[k]*=pump[:,None]
-    G={'organ':1.0,'bass':0.8,'lead':P.get('lead_gain',1.0),'fx':0.7,'kick':P.get('drum_gain',0.65),'snare':0.5*P.get('drum_gain',0.65)/0.65,'hat':0.55,'gtr':0.7,'igtr':0.9,'choir':0.75,'bell':0.5}
+    G={'organ':1.0,'bass':0.8,'lead':P.get('lead_gain',1.0),'fx':0.7,'kick':P.get('drum_gain',0.65),'snare':0.5*P.get('drum_gain',0.65)/0.65,'hat':0.55,'gtr':0.7,'igtr':0.9,'choir':0.75,'bell':0.5,'dark':P.get('dark_gain',1.0)}
     mix=sum(TR[k]*g for k,g in G.items() if k in TR)
     gate=np.ones(N)
     def cut(a_,b_):
@@ -154,8 +231,16 @@ def render(P,path):
     def reverb(x,dec,m):
         n=int(dec*SR); t=np.arange(n)/SR; ir=np.stack([lp(rng.standard_normal(n),4000)*np.exp(-t*6.9/dec) for _ in range(2)],1)
         w=np.stack([fftconvolve(x[:,c],ir[:,c])[:len(x)] for c in range(2)],1); return w*m/np.sqrt((ir**2).sum()/2)
-    send=sum(TR[k]*g for k,g in (('organ',0.35),('lead',0.5),('snare',0.4),('fx',0.4),('gtr',0.3),('igtr',0.6),('choir',0.5),('bell',0.6)) if k in TR)
-    mix=mix*gate[:,None]+reverb(send,P.get('verb',2.8),0.38)
+    send=sum(TR[k]*g for k,g in (('organ',0.35),('lead',0.5),('snare',0.4),('fx',0.4),('gtr',0.3),('igtr',0.6),('choir',0.5),('bell',0.6),('dark',0.45)) if k in TR)
+    mix=mix*gate[:,None]
+    if P.get('dark'):
+        s32=int(S16*SR/2)
+        for b in range(1,NB):
+            if secs[b]!=secs[b-1] and secs[b] in ('A2','B2'):
+                a=int((b*BAR-BEAT)*SR); src=mix[a-int(BEAT*SR):a-int(BEAT*SR)+s32].copy()
+                for k in range(8):
+                    seg=src*(0.9-0.08*k); mix[a+k*s32:a+(k+1)*s32]=seg
+    mix=mix+reverb(send,P.get('verb',2.8),0.38)
     if P.get('tape_stop_bar') is not None:
         a=int((P['tape_stop_bar']*BAR+3*BEAT)*SR); n=int(BEAT*SR); pos=a+np.cumsum(np.linspace(1,0,n)**1.5)
         mix[a:a+n]=np.stack([np.interp(pos,np.arange(N),mix[:,c]) for c in range(2)],1)*np.linspace(1,0.2,n)[:,None]
@@ -189,6 +274,11 @@ TRACKS={
     layers={'organ','gtr','choir','drops'},form=[('intro',4),('A1',8),('B1',8),('A2',8),('B2',8),('outro',4)],
     drum_secs=('B1','A2','B2'),bass_pat=[(0,8,0),(10,6,0)],gtr_pat=[(0,0),(4,1),(8,2),(12,3)],
     kick_pat=([0],[0,10]),snare_pat=(8,),pump=(0.3,0.5),shaker=False,verb=4.2,lp=4500,wow=0.4,fade=12,b_high=False,drum_gain=0.55),
+ '5_noch_dark': dict(seed=505,dark=True,dark_gain=1.0,
+    bpm=124,tonic=48,progA='i-VI-iv-V',progB='i-VII-VI-V',harm_rhythm=2,density=0.65,
+    layers={'organ','gtr','choir','trem','drops','bells'},bell_secs=('A2',),form=STD_FORM,drum_secs=('A1','B1','A2','B2'),
+    bass_pat=[(0,3,0),(3,3,0),(6,2,12)],gtr_pat=[(0,0),(2,2),(4,1),(6,2),(8,3),(10,2),(12,1),(14,2)],
+    kick_pat=([0,6,10],[0,6,10,13]),snare_pat=(4,12),pump=(0.5,0.7),shaker=True,tape_stop_bar=19,drum_gain=0.75),
  '5_noch': dict(seed=505,bpm=124,tonic=48,progA='i-VI-iv-V',progB='i-VII-VI-V',harm_rhythm=2,density=0.65,
     layers={'organ','gtr','choir','trem','drops','bells'},bell_secs=('A2',),form=STD_FORM,drum_secs=('A1','B1','A2','B2'),
     bass_pat=[(0,3,0),(3,3,0),(6,2,12)],gtr_pat=[(0,0),(2,2),(4,1),(6,2),(8,3),(10,2),(12,1),(14,2)],
