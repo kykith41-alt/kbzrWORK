@@ -184,7 +184,7 @@ def render(P,path):
         add('dark',0,dr*lvl,0)
         # heartbeat in intro and outro
         for b,s_ in enumerate(secs):
-            if s_ in('intro','outro'):
+            if s_=='outro' or (s_=='intro' and not P.get('new_intro')):
                 for k in (0,2): add('dark',b*BAR+k*BEAT,heart(),0,0.9)
         # static at intro + transitions
         add('dark',0,static(2*BAR),0.2)
@@ -208,6 +208,26 @@ def render(P,path):
             n=len(x); ir=lp(r2.standard_normal(int(2.0*SR)),3500)*np.exp(-np.arange(int(2.0*SR))/SR*3.4)
             wet=fftconvolve(x,ir)[:n]; wet=wet/np.abs(wet).max()*0.25
             add('dark',b*BAR-n/SR,wet[::-1],0.0)
+    if P.get('new_intro') or P.get('pulse'):
+        r3=np.random.default_rng(P['seed']+777); keep=L.rng; L.rng=r3
+        if P.get('new_intro'):
+            # beat already running under the filter in the intro (bars 1-3), snare roll into A1
+            for b in range(1,4):
+                for st in P['kick_pat'][b%2]: add('kick',b*BAR+st*S16,L.kick(),0,0.9)
+                for st in P['snare_pat']: add('snare',b*BAR+st*S16,L.snare(),0.1,0.9)
+                for st in range(0,16,2): add('hat',b*BAR+st*S16,L.hat(1 if st%4==2 else 0.6),-0.2)
+            for k in range(16): add('snare',3*BAR+k*S16,L.snare()*(0.15+0.6*k/15),0.0)
+            add('fx',0,L.drop(520,60,0.9),0.0,0.9)
+        if P.get('pulse'):
+            # 8th-note muted chord pulse for constant motion (like the reference's rhythm density)
+            for b,s_ in enumerate(secs):
+                if s_ in ('outro',) or (s_=='intro' and b<2): continue
+                for st in range(0,16,2):
+                    ch=chord_at(s_,b,st*hr//16); n=int(S16*1.6*SR)
+                    x=L.organ([c+12 for c in ch],S16*1.6)
+                    x=bp(x,900,5000)*np.exp(-np.arange(len(x))/SR*28)*np.minimum(np.arange(len(x))/SR/0.002,1)
+                    add('pulse',b*BAR+st*S16+(0.008 if st%4 else 0),x,(-0.15,0.15)[(st//2)%2],1.0 if st%4==0 else 0.7)
+        L.rng=keep
     # ---- user's sound clip (cleaned by prep_sample.py), placed at key moments with tempo-synced echo
     if P.get('sample'):
         smp,_sr=sf.read(P['sample']); smp=smp if smp.ndim==2 else np.stack([smp,smp],1)
@@ -232,7 +252,7 @@ def render(P,path):
     pump=1-depth*np.exp(-((tt%BEAT))/0.11)
     for k in ('organ','gtr','choir','bass','bell'):
         if k in TR: TR[k]*=pump[:,None]
-    G={'organ':1.0,'bass':0.8,'lead':P.get('lead_gain',1.0),'fx':0.7,'kick':P.get('drum_gain',0.65),'snare':0.5*P.get('drum_gain',0.65)/0.65,'hat':0.55,'gtr':0.7,'igtr':0.9,'choir':0.75,'bell':0.5,'dark':P.get('dark_gain',1.0),'smp':P.get('sample_gain',0.9)}
+    G={'organ':1.0,'bass':0.8,'lead':P.get('lead_gain',1.0),'fx':0.7,'kick':P.get('drum_gain',0.65),'snare':0.5*P.get('drum_gain',0.65)/0.65,'hat':0.55,'gtr':0.7,'igtr':0.9,'choir':0.75,'bell':0.5,'dark':P.get('dark_gain',1.0),'smp':P.get('sample_gain',0.9),'pulse':P.get('pulse_gain',0.0)}
     if 'smp' in TR:   # tame the clip's peaks so it never drives the master limiter
         base_pk=np.abs(sum(TR[k]*g for k,g in G.items() if k in TR and k!='smp')).max()
         thr=0.3*base_pk/max(G['smp'],1e-6); TR['smp']=np.tanh(TR['smp']/thr)*thr
@@ -250,6 +270,12 @@ def render(P,path):
         w=np.stack([fftconvolve(x[:,c],ir[:,c])[:len(x)] for c in range(2)],1); return w*m/np.sqrt((ir**2).sum()/2)
     send=sum(TR[k]*g for k,g in (('organ',0.35),('lead',0.5),('snare',0.4),('fx',0.4),('gtr',0.3),('igtr',0.6),('choir',0.5),('bell',0.6),('dark',0.45),('smp',0.55)) if k in TR)
     mix=mix*gate[:,None]
+    if P.get('new_intro'):
+        a_end=int(4*BAR*SR); blk=2048; out=mix[:a_end].copy()
+        for i in range(0,a_end,blk):
+            fc=300*(6500/300)**((i/a_end)**1.6)
+            seg=mix[max(i-4096,0):i+blk]; out[i:i+blk]=lp(seg,fc,2)[-len(out[i:i+blk]):]*(0.7+0.3*i/a_end)
+        mix[:a_end]=out
     if P.get('dark'):
         s32=int(S16*SR/2)
         for b in range(1,NB):
@@ -261,14 +287,21 @@ def render(P,path):
     if P.get('tape_stop_bar') is not None:
         a=int((P['tape_stop_bar']*BAR+3*BEAT)*SR); n=int(BEAT*SR); pos=a+np.cumsum(np.linspace(1,0,n)**1.5)
         mix[a:a+n]=np.stack([np.interp(pos,np.arange(N),mix[:,c]) for c in range(2)],1)*np.linspace(1,0.2,n)[:,None]
-    M_=(mix[:,0]+mix[:,1])/2; S_=(mix[:,0]-mix[:,1])/2*0.35; mix=np.stack([M_+S_,M_-S_],1)
-    mix=hp(mix,110,4); mix=lp(mix,P.get('lp',5200),4); mix=mix+bp(mix,300,1500)*0.35
+    M_=(mix[:,0]+mix[:,1])/2; S_=(mix[:,0]-mix[:,1])/2*P.get('side',0.35); mix=np.stack([M_+S_,M_-S_],1)
+    mix=hp(mix,110,4); mix=lp(mix,P.get('lp',5200),4); mix=mix+bp(mix,300,1500)*P.get('mid_boost',0.35)
+    if P.get('presence'): mix=mix+bp(mix,2000,4500)*P['presence']
+    if P.get('comp'):   # slow RMS compressor -> steady 'wall of sound' like the reference
+        env=np.sqrt(lp(mix.mean(1)**2,2.5,1).clip(1e-9)); thr=np.percentile(env,40)
+        g=np.where(env>thr,(env/thr)**(1/4-1),1.0); mix=mix*g[:,None]
     mix/=np.abs(mix).max(); mix=np.tanh(mix*2.2)
     d=(0.004+0.0018*np.sin(2*np.pi*P.get('wow',0.55)*tt)+0.0006*np.sin(2*np.pi*1.3*tt+1)+0.00008*np.sin(2*np.pi*7*tt))*SR
     idx=np.clip(np.arange(N)-d,0,N-1)
     mix=np.stack([np.interp(idx,np.arange(N),mix[:,c]) for c in range(2)],1)
-    mix+=lp(hp(rng.standard_normal((N,2)),1500),5000)*0.006; mix=lp(mix,6000,2)
+    mix+=lp(hp(rng.standard_normal((N,2)),1500),5000)*0.006; mix=lp(mix,P.get('final_lp',6000),2)
     mix*=0.95/np.abs(mix).max()
+    if P.get('target_rms_db') is not None:
+        rms=np.sqrt((mix[int(4*BAR*SR):int((NB-2)*BAR*SR)]**2).mean()); mix*=10**(P['target_rms_db']/20)/rms
+        mix=np.tanh(mix/0.97)*0.97
     end=int((NB*BAR+4)*SR); mix=mix[:end]; fo=int(P.get('fade',8)*SR); mix[-fo:]*=np.linspace(1,0,fo)[:,None]**1.3
     fi=int(0.03*SR); mix[:fi]*=np.linspace(0,1,fi)[:,None]
     sf.write(path,mix.astype(np.float32),SR); print(path,'ok',round(len(mix)/SR,1),'s')
@@ -291,6 +324,12 @@ TRACKS={
     layers={'organ','gtr','choir','drops'},form=[('intro',4),('A1',8),('B1',8),('A2',8),('B2',8),('outro',4)],
     drum_secs=('B1','A2','B2'),bass_pat=[(0,8,0),(10,6,0)],gtr_pat=[(0,0),(4,1),(8,2),(12,3)],
     kick_pat=([0],[0,10]),snare_pat=(8,),pump=(0.3,0.5),shaker=False,verb=4.2,lp=4500,wow=0.4,fade=12,b_high=False,drum_gain=0.55),
+ '5_noch_v2': dict(seed=505,dark=True,dark_gain=1.0,sample='sample_clean.wav',sample_gain=0.9,
+    new_intro=True,pulse=True,pulse_gain=1.3,side=0.15,lp=7500,presence=0.9,mid_boost=0.1,final_lp=8000,comp=True,target_rms_db=-13.5,
+    bpm=124,tonic=48,progA='i-VI-iv-V',progB='i-VII-VI-V',harm_rhythm=2,density=0.65,
+    layers={'organ','gtr','choir','trem','drops','bells'},bell_secs=('A2',),form=STD_FORM,drum_secs=('A1','B1','A2','B2'),
+    bass_pat=[(0,3,0),(3,3,0),(6,2,12)],gtr_pat=[(0,0),(2,2),(4,1),(6,2),(8,3),(10,2),(12,1),(14,2)],
+    kick_pat=([0,6,10],[0,6,10,13]),snare_pat=(4,12),pump=(0.5,0.7),shaker=True,tape_stop_bar=19,drum_gain=0.75),
  '5_noch_dark_sample': dict(seed=505,dark=True,dark_gain=1.0,sample='sample_clean.wav',sample_gain=0.9,
     bpm=124,tonic=48,progA='i-VI-iv-V',progB='i-VII-VI-V',harm_rhythm=2,density=0.65,
     layers={'organ','gtr','choir','trem','drops','bells'},bell_secs=('A2',),form=STD_FORM,drum_secs=('A1','B1','A2','B2'),
