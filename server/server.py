@@ -146,10 +146,10 @@ def details(ids):
     j = need_json(r, URL_DETAILS)
     return [d for d in (j.get("data") or []) if isinstance(d, dict)]
 
-def purchase(product_id, price, seller_id, currency):
+def purchase(product_id, asset_id, price, seller_id, currency):
     url = URL_PURCHASE.format(pid=int(product_id))
-    payload = {"expectedCurrency": currency, "expectedPrice": int(price), "expectedSellerId": int(seller_id),
-               "userAssetId": None}
+    payload = {"assetId": int(asset_id), "expectedCurrency": currency, "expectedPrice": int(price),
+               "expectedSellerId": int(seller_id), "userAssetId": None}
     (r,) = yield [post(url, payload)]
     status = r.get("status") if isinstance(r, dict) else 0
     j = r.get("json") if isinstance(r, dict) else None
@@ -158,12 +158,19 @@ def purchase(product_id, price, seller_id, currency):
               ((j.get("errors") or [{}])[0].get("message")))) or f"response {status}"
     return {"ok": ok, "reason": "ok" if ok else reason}
 
+def to_int(v, default):
+    n = num(v)
+    return int(n) if math.isfinite(n) else default
+
 def keywords(cfg):
     return [w.lower() for w in re.split(r"[,\n]+", str(cfg.get("sniperKeywords") or "")) if w.strip()]
 
 def pick_price(d, cfg):
     """Возвращает (цена, валюта) по настройкам или None, если дорого."""
     r, t = d.get("price"), d.get("priceTickets")
+    if d.get("isOnSale"):
+        if is_num(d.get("salePriceRobux")): r = d["salePriceRobux"]
+        if is_num(d.get("salePriceTix")): t = d["salePriceTix"]
     cur = cfg.get("sniperCurrency") or "robux"
     max_r, max_t = num(cfg.get("sniperMaxRobux", 50)), num(cfg.get("sniperMaxTickets", 500))
     if cur in ("robux", "any") and is_num(r) and r <= max_r: return r, ROBUX
@@ -173,8 +180,8 @@ def pick_price(d, cfg):
 def job_snipe(a, key):
     cfg = a.get("cfg") or {}
     st = a.get("st") or {}
-    count = int(num(st.get("sniperBought")) or 0)
-    max_buys = int(num(cfg.get("sniperMaxBuys", 5)) or 0)
+    count = to_int(st.get("sniperBought"), 0)
+    max_buys = to_int(cfg.get("sniperMaxBuys"), 5)
     known = [str(x) for x in (st.get("sniperKnown") or [])]
     words = keywords(cfg)
     log, bought = [], []
@@ -200,9 +207,11 @@ def job_snipe(a, key):
             if words and not any(w in name.lower() for w in words): continue
             choice = pick_price(d, cfg)
             seller = d.get("creatorTargetId") or d.get("expectedSellerId")
-            if not choice or not seller or not d.get("productId"): continue
+            # memora не отдаёт productId — покупка идёт по id ассета
+            product = d.get("productId") or d.get("id")
+            if not choice or not seller or not product: continue
             price, cur = choice
-            res = yield from purchase(d["productId"], price, seller, cur)
+            res = yield from purchase(product, d["id"], price, seller, cur)
             known.append(str(d.get("id")))
             sign = "R$" if cur == ROBUX else "Tx"
             if res["ok"]:
