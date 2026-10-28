@@ -17,6 +17,8 @@ local POSE_SMOOTH = 16
 local LAND_ATTACK = 0.07
 local LAND_HOLD = 0.08
 local LAND_RECOVER = 0.45
+local LAND_LEG_SNAP = 0.25 -- сколько секунд после касания ноги быстро выпрямляются из позы прыжка
+local LEGS = { rHip = true, lHip = true, rKnee = true, lKnee = true, rAnkle = true, lAnkle = true }
 
 local active = {}
 
@@ -275,6 +277,8 @@ local function step(state, dt)
 	if grounded and not state.wasGrounded and state.airTime > 0.18 then
 		local strength = math.clamp(-state.lastVY / 50, 0.3, 1) * (1 - 0.45 * state.runW)
 		state.landAmt = strength
+		-- сразу убираем позу прыжка, иначе поджатые ноги складываются с приседом и получается шпагат
+		state.airW = 0
 		state.landT = 0
 		state.landRecover = LAND_RECOVER * (0.65 + 0.35 * strength) * (1 - 0.35 * state.moveW)
 	end
@@ -314,7 +318,8 @@ local function step(state, dt)
 
 	local cur = state.pose
 	local a = 1 - math.exp(-dt * POSE_SMOOTH)
-	for _, n in ipairs(NAMES) do cur[n] = cur[n]:Lerp(target[n], a) end
+	local aLeg = state.landT < LAND_LEG_SNAP and 1 - math.exp(-dt * (POSE_SMOOTH + 40)) or a
+	for _, n in ipairs(NAMES) do cur[n] = cur[n]:Lerp(target[n], LEGS[n] and aLeg or a) end
 	cur.lift = cur.lift:Lerp(target.lift, math.min(1, a * 1.6))
 
 
@@ -359,7 +364,8 @@ local function step(state, dt)
 	end
 
 
-	local depth = state.r6 and 0.55 or 0.9
+	-- у R6 нет коленей, поэтому присед почти только корпусом
+	local depth = state.r6 and 0.15 or 0.6
 	local drop = math.max(0, -(land * depth + toolDip))
 	if not grounded then drop = 0 end
 	final.lift += v(0, -drop, 0)
@@ -368,7 +374,7 @@ local function step(state, dt)
 
 		local ang = legAngle(drop, R6_LEG)
 		final.rHip += v(ang)
-		final.lHip += v(-ang * 0.85)
+		final.lHip += v(-ang)
 
 		local w = final.waist
 		final.root += w
@@ -377,7 +383,7 @@ local function step(state, dt)
 		final.waist = V0
 	elseif state.hasKnees and grounded then
 
-		local ang = legAngle(math.max(0, -final.lift.Y), state.legLength)
+		local ang = math.min(legAngle(math.max(0, -final.lift.Y), state.legLength), R(50))
 		final.rHip += v(ang); final.lHip += v(ang)
 		final.rKnee += v(-2 * ang); final.lKnee += v(-2 * ang)
 		final.rAnkle += v(ang); final.lAnkle += v(ang)
