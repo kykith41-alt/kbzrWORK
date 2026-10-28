@@ -37,6 +37,11 @@
     <div class="row"><span>Max buys</span><input type="number" data-key="sniperMaxBuys" min="0" step="1"></div>
     <div class="row"><span>Check, sec</span><input type="number" data-key="sniperInterval" min="1" max="60" step="1"></div>
     <textarea data-key="sniperKeywords" rows="2" spellcheck="false" placeholder="Name keywords"></textarea>
+    <div class="key-row test-row">
+      <input id="testId" type="number" min="1" step="1" placeholder="Item ID">
+      <button id="testBuy" type="button">Test buy</button>
+    </div>
+    <div id="testStatus" class="status"></div>
     <div id="sniperStatus" class="status"></div>
     <div class="row"><span>Bought</span><b id="sniperCount" class="count"></b></div>
     <ul id="sniperLog" class="log"></ul>

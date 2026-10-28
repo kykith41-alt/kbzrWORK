@@ -153,7 +153,7 @@ def error_text(r):
     return (isinstance(j, dict) and (j.get("reason") or j.get("errorMsg") or
             ((j.get("errors") or [{}])[0].get("message")))) or f"response {status}"
 
-def purchase(product_id, asset_id, price, seller_id, currency):
+def purchase(product_id, asset_id, price, seller_id, currency, user_asset_id=None):
     # Как на сайте: handshake выдаёт одноразовый билет, покупка идёт с X-Korone-Ticket.
     # tToken — токен Cloudflare Turnstile; если сайт его требует, handshake вернёт ошибку.
     pid = int(product_id)
@@ -163,7 +163,7 @@ def purchase(product_id, asset_id, price, seller_id, currency):
     if not (200 <= (r.get("status") or 0) < 300) or not ticket:
         return {"ok": False, "handshake": True, "reason": "handshake: " + error_text(r)}
     payload = {"assetId": int(asset_id), "expectedPrice": int(price), "expectedSellerId": int(seller_id),
-               "userAssetId": None, "expectedCurrency": currency}
+               "userAssetId": int(user_asset_id) if user_asset_id else None, "expectedCurrency": currency}
     (r,) = yield [{**post(URL_PURCHASE.format(pid=pid), payload), "headers": {"X-Korone-Ticket": ticket}}]
     j = r.get("json") if isinstance(r, dict) else None
     ok = 200 <= (r.get("status") or 0) < 300 and isinstance(j, dict) and j.get("purchased") is True
@@ -240,8 +240,43 @@ def job_snipe(a, key):
         ok, text = False, str(e)
     return done()
 
+def job_test_buy(a, key):
+    """Тестовая покупка одного предмета по id (с учётом лимитов Max R$ / Max Tix)."""
+    cfg = a.get("cfg") or {}
+    aid = to_int(a.get("id"), 0)
+    if aid <= 0: raise JobError("Enter an item ID")
+    items = yield from details([aid])
+    if not items: raise JobError(f"Item {aid} not found")
+    d = items[0]
+    name = d.get("name") or f"#{aid}"
+
+    def result(ok, text):
+        return {"result": {"ok": ok, "name": name, "text": text},
+                "log": [{"kind": "buy" if ok else "fail", "name": name, "text": "test: " + text}]}
+
+    lowest = d.get("lowestSellerData") or {}
+    if for_sale(d):
+        choice = pick_price(d, cfg)
+        if not choice:
+            cost = " / ".join(f"{v} {u}" for v, u in ((d.get("price"), "R$"), (d.get("priceTickets"), "Tx")) if is_num(v))
+            return result(False, f"costs {cost or '?'} — doesn't fit your currency or max price")
+        price, cur = choice
+        seller, uaid = d.get("creatorTargetId"), None
+    elif is_limited(d) and is_num(lowest.get("price")) and lowest.get("userAssetId"):
+        price, cur = lowest["price"], ROBUX
+        if price > num(cfg.get("sniperMaxRobux", 50)):
+            return result(False, f"cheapest reseller wants {price} R$, above your max")
+        seller, uaid = lowest.get("userId"), lowest["userAssetId"]
+    else:
+        return result(False, "not for sale")
+    if not seller: return result(False, "no seller id")
+    res = yield from purchase(d.get("productId") or aid, aid, price, seller, cur, uaid)
+    sign = "R$" if cur == ROBUX else "Tx"
+    who = " from reseller" if uaid else ""
+    return result(res["ok"], f"bought for {price} {sign}{who}" if res["ok"] else res["reason"])
+
 # ---------- РОУТИНГ ЗАДАЧ ----------
-JOBS = {"snipe": job_snipe}
+JOBS = {"snipe": job_snipe, "test_buy": job_test_buy}
 running = {}
 running_lock = threading.Lock()
 

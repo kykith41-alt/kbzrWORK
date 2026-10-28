@@ -68,6 +68,34 @@ function loadSniper() {
 document.getElementById("sniperReset").addEventListener("click", () => {
   chrome.storage.local.set({ sniperBought: 0, sniperLog: [], sniperKnown: [], sniperStatus: null });
 });
+const testId = document.getElementById("testId");
+const testBuy = document.getElementById("testBuy");
+const testStatus = document.getElementById("testStatus");
+let testTimer = 0;
+function showTest(text, cls) {
+  testStatus.className = "status " + (cls || "");
+  testStatus.textContent = text;
+}
+testBuy.addEventListener("click", () => {
+  const id = testId.value.trim();
+  if (!/^\d+$/.test(id)) { showTest("Enter an item ID", "err"); return; }
+  if (!testBuy.classList.contains("confirm")) {
+    testBuy.classList.add("confirm");
+    testBuy.textContent = "Sure?";
+    testTimer = setTimeout(() => { testBuy.classList.remove("confirm"); testBuy.textContent = "Test buy"; }, 4000);
+    return;
+  }
+  clearTimeout(testTimer);
+  testBuy.classList.remove("confirm");
+  testBuy.textContent = "Test buy";
+  testBuy.disabled = true;
+  showTest("Buying #" + id + "…");
+  chrome.runtime.sendMessage({ type: "osn-testbuy", id }, res => {
+    testBuy.disabled = false;
+    if (chrome.runtime.lastError || !res) showTest("No response from the extension", "err");
+    else showTest(`${res.name ? res.name + ": " : ""}${res.text}`, res.ok ? "ok" : "err");
+  });
+});
 const licKey = document.getElementById("licKey");
 const licSave = document.getElementById("licSave");
 const licStatus = document.getElementById("licStatus");

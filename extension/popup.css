@@ -104,6 +104,9 @@ button.ghost { background: transparent; color: var(--muted); border: 1px solid v
   font: 12px Consolas, monospace;
 }
 .key-row button { width: auto; padding: 6px 10px; }
+.test-row { margin: 8px 0 0; }
+.test-row input { font: inherit; }
+button.confirm { background: #f0a84a; }
 .status { margin: 6px 0; font-size: 11px; color: var(--muted); }
 .status.ok::before { content: "● "; color: #3c9; }
 .status.err::before { content: "● "; color: #e55; }

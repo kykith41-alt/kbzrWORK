@@ -113,6 +113,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   return true;
 });
 
+chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+  if (!msg || msg.type !== "osn-testbuy") return;
+  getStore("sync", SNIPER_DEFAULTS)
+    .then(cfg => runJob("test_buy", { id: msg.id, cfg }))
+    .then(({ result }) => {
+      if (result.ok) chrome.notifications.create({ type: "basic", iconUrl: "icons/icon128.png", title: "Test buy OK", message: `${result.name}: ${result.text}` });
+      reply(result);
+    }, e => reply({ ok: false, text: String(e.message || e) }));
+  return true;
+});
+
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete' && tab.url && new URL(tab.url).hostname.endsWith(SITE_HOST)) {
     OsnLicense.token(true).catch(() => {});
