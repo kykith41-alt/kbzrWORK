@@ -256,7 +256,14 @@ local function step(state, dt)
 
 
 	local down = hum.HipHeight + hrp.Size.Y / 2 + (state.r6 and 2.7 or 0.7)
-	local grounded = hum.Sit or Workspace:Raycast(hrp.Position, Vector3.new(0, -down, 0), state.rayParams) ~= nil
+	-- проверяем всю площадь под ногами, а не одну точку по центру:
+	-- иначе на краю блока (одна нога на блоке, другая над пустотой) включалось падение
+	local footprint = Vector3.new(hrp.Size.X * 0.9, 0.2, hrp.Size.Z * 0.9)
+	local onFloor = hum.Sit or hum.FloorMaterial ~= Enum.Material.Air
+		or Workspace:Blockcast(hrp.CFrame, footprint, Vector3.new(0, -down, 0), state.rayParams) ~= nil
+	if onFloor then state.offFloorT = 0 else state.offFloorT += dt end
+	-- короткие пропадания пола (стыки блоков, ступеньки) не считаем прыжком/падением
+	local grounded = onFloor or (state.offFloorT < 0.12 and math.abs(vel.Y) < 4)
 
 
 	local function approach(cur, target, rate) return cur + (target - cur) * (1 - math.exp(-dt * rate)) end
@@ -428,7 +435,7 @@ function CharacterAnimator.Attach(character)
 		character = character, hum = hum, hrp = hrp, joints = joints, base = base, r6 = not isR15,
 		hasKnees = joints.rKnee ~= nil, legLength = legLength, rayParams = params,
 		pose = emptyPose(), phase = 0, moveW = 0, speedW = 0, runW = 0, airW = 0, rising = 0.5,
-		landAmt = 0, landT = 10, landRecover = LAND_RECOVER, airTime = 0, wasGrounded = true,
+		landAmt = 0, landT = 10, landRecover = LAND_RECOVER, airTime = 0, offFloorT = 0, wasGrounded = true,
 		lastVY = 0, lastSpeed = 0, holdW = 1,
 		turnLean = 0, accelLean = 0, seed = math.random() * 100,
 	}
