@@ -127,6 +127,7 @@ API_BASE = os.environ.get("API_BASE", SITE_BASE + "/apisite")
 URL_LIMITEDS = f"{API_BASE}/catalog/v1/search/items?category=Collectibles&limit=120&sortType=3"
 URL_DETAILS = f"{API_BASE}/catalog/v1/catalog/items/details"
 URL_PURCHASE = API_BASE + "/economy/v1/purchases/products/{pid}"
+URL_HANDSHAKE = URL_PURCHASE + "/handshake"
 
 ROBUX, TICKETS = 1, 2
 SNIPE_CHECK = 30
@@ -146,17 +147,27 @@ def details(ids):
     j = need_json(r, URL_DETAILS)
     return [d for d in (j.get("data") or []) if isinstance(d, dict)]
 
-def purchase(product_id, asset_id, price, seller_id, currency):
-    url = URL_PURCHASE.format(pid=int(product_id))
-    payload = {"assetId": int(asset_id), "expectedCurrency": currency, "expectedPrice": int(price),
-               "expectedSellerId": int(seller_id), "userAssetId": None}
-    (r,) = yield [post(url, payload)]
+def error_text(r):
     status = r.get("status") if isinstance(r, dict) else 0
     j = r.get("json") if isinstance(r, dict) else None
-    ok = 200 <= status < 300 and isinstance(j, dict) and j.get("purchased") is True
-    reason = (isinstance(j, dict) and (j.get("reason") or j.get("errorMsg") or
-              ((j.get("errors") or [{}])[0].get("message")))) or f"response {status}"
-    return {"ok": ok, "reason": "ok" if ok else reason}
+    return (isinstance(j, dict) and (j.get("reason") or j.get("errorMsg") or
+            ((j.get("errors") or [{}])[0].get("message")))) or f"response {status}"
+
+def purchase(product_id, asset_id, price, seller_id, currency):
+    # Как на сайте: handshake выдаёт одноразовый билет, покупка идёт с X-Korone-Ticket.
+    # tToken — токен Cloudflare Turnstile; если сайт его требует, handshake вернёт ошибку.
+    pid = int(product_id)
+    (r,) = yield [post(URL_HANDSHAKE.format(pid=pid), {"tToken": None})]
+    j = r.get("json") if isinstance(r, dict) else None
+    ticket = isinstance(j, dict) and j.get("token")
+    if not (200 <= (r.get("status") or 0) < 300) or not ticket:
+        return {"ok": False, "handshake": True, "reason": "handshake: " + error_text(r)}
+    payload = {"assetId": int(asset_id), "expectedPrice": int(price), "expectedSellerId": int(seller_id),
+               "userAssetId": None, "expectedCurrency": currency}
+    (r,) = yield [{**post(URL_PURCHASE.format(pid=pid), payload), "headers": {"X-Korone-Ticket": ticket}}]
+    j = r.get("json") if isinstance(r, dict) else None
+    ok = 200 <= (r.get("status") or 0) < 300 and isinstance(j, dict) and j.get("purchased") is True
+    return {"ok": ok, "reason": "ok" if ok else error_text(r)}
 
 def to_int(v, default):
     n = num(v)
@@ -212,6 +223,10 @@ def job_snipe(a, key):
             if not choice or not seller or not product: continue
             price, cur = choice
             res = yield from purchase(product, d["id"], price, seller, cur)
+            if res.get("handshake"):
+                # покупка сейчас невозможна ни для одного предмета — не помечаем, повторим позже
+                log.append({"kind": "fail", "name": name, "text": res["reason"]})
+                raise JobError(res["reason"])
             known.append(str(d.get("id")))
             sign = "R$" if cur == ROBUX else "Tx"
             if res["ok"]:

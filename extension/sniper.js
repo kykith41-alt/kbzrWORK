@@ -1,6 +1,9 @@
 var Sniper = (() => {
   const allowedHost = h => h === SITE_HOST || h.endsWith("." + SITE_HOST);
   let csrf = "";
+  // сервер может передать только заголовки сайта вида X-Korone-*
+  const siteHeaders = req => Object.fromEntries(Object.entries(req.headers || {})
+    .filter(([k, v]) => /^x-korone-[a-z-]+$/i.test(k) && typeof v === "string"));
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   async function run(req) {
     let url;
@@ -14,7 +17,7 @@ var Sniper = (() => {
           method: req.method || "GET",
           credentials: "include",
           cache: "no-store",
-          headers: req.body ? { "Content-Type": "application/json", "X-CSRF-Token": csrf } : undefined,
+          headers: req.body ? { "Content-Type": "application/json", "X-CSRF-Token": csrf, ...siteHeaders(req) } : undefined,
           body: req.body ? JSON.stringify(req.body) : undefined
         });
       } catch {

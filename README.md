@@ -8,15 +8,18 @@
    (с вашими куками и CSRF-токеном) и отправляет ответы обратно.
 3. Сервер выбирает лимитки по цене/валюте/ключевым словам и отдаёт команду на покупку.
 
-## API сайта
-Все адреса в одном месте: блок `MEMORA` в `server/server.py`
-(`SITE_BASE`, `API_BASE`, `URL_LIMITEDS`, `URL_DETAILS`, `URL_PURCHASE`).
-По умолчанию это Roblox-совместимые пути под `/apisite` — **их нужно проверить**:
-откройте memora.zip, F12 → Console, вставьте `tools/probe.js`. Скрипт покажет,
-какие пути отвечают JSON-ом. Путь покупки удобнее подсмотреть во вкладке Network,
-купив любой бесплатный предмет вручную.
+## API сайта (проверено на memora.zip)
+Все адреса — в блоке `MEMORA` в `server/server.py`, база `https://memora.zip/apisite`.
+- список лимиток: `GET /catalog/v1/search/items?category=Collectibles&sortType=3`
+- данные предметов: `POST /catalog/v1/catalog/items/details` — `productId` нет, покупка идёт по id ассета
+- покупка в два шага, как на сайте:
+  1. `POST /economy/v1/purchases/products/{id}/handshake` `{tToken}` → `{token}`
+  2. `POST /economy/v1/purchases/products/{id}` с заголовком `X-Korone-Ticket: <token>`
 
-Базу можно сменить без правки кода: `API_BASE=https://memora.zip/api python3 server.py`.
+`tToken` — токен Cloudflare Turnstile. Снайпер отправляет `null`; если сайт включит
+обязательную капчу, handshake вернёт ошибку и снайпер покажет её в статусе.
+
+`tools/probe*.js` — скрипты для консоли браузера, которыми проверялся API.
 
 ## Смена сайта
 - `extension/defaults.js` → `SITE_HOST`
