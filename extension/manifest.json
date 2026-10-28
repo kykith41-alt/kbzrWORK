@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Memora Sniper",
+  "version": "3.0.0",
+  "description": "Limited sniper for Memora.",
+  "browser_specific_settings": {
+    "gecko": { "id": "octane-snow@local", "strict_min_version": "128.0" }
+  },
+  "permissions": ["storage", "alarms", "notifications", "scripting"],
+  "host_permissions": ["*://memora.zip/*", "*://*.memora.zip/*", "http://fi13.bot-hosting.cloud:25537/*"],
+  "background": { "service_worker": "background.js", "scripts": ["defaults.js", "license.js", "background.js"] },
+  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'self'" },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Memora Sniper",
+    "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+  },
+  "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "content_scripts": [
+    { "matches": ["*://memora.zip/*", "*://*.memora.zip/*"], "js": ["defaults.js", "sniper.js"], "run_at": "document_idle" }
+  ]
+}

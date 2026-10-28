@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Memora Sniper</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <img src="icons/icon48.png" alt="" width="28" height="28">
+    <h1>Memora Sniper</h1>
+  </header>
+  <section class="license">
+    <h2>License key</h2>
+    <div class="key-row">
+      <input id="licKey" type="text" spellcheck="false" autocomplete="off" placeholder="ECHO-XXXX-XXXX-XXXX-XXXX">
+      <button id="licSave" type="button">Activate</button>
+    </div>
+    <div id="licStatus" class="status"></div>
+  </section>
+  <div id="app" hidden>
+  <section class="sniper">
+    <h2>
+      Limited sniper
+      <label class="switch"><input type="checkbox" data-key="sniper"><span></span></label>
+    </h2>
+    <div class="row">
+      <span>Currency</span>
+      <select data-key="sniperCurrency">
+        <option value="robux">Robux</option>
+        <option value="tickets">Tickets</option>
+        <option value="any">Robux, then Tickets</option>
+      </select>
+    </div>
+    <div class="row"><span>Max R$</span><input type="number" data-key="sniperMaxRobux" min="0" step="1"></div>
+    <div class="row"><span>Max Tix</span><input type="number" data-key="sniperMaxTickets" min="0" step="1"></div>
+    <div class="row"><span>Max buys</span><input type="number" data-key="sniperMaxBuys" min="0" step="1"></div>
+    <div class="row"><span>Check, sec</span><input type="number" data-key="sniperInterval" min="1" max="60" step="1"></div>
+    <textarea data-key="sniperKeywords" rows="2" spellcheck="false" placeholder="Name keywords"></textarea>
+    <div id="sniperStatus" class="status"></div>
+    <div class="row"><span>Bought</span><b id="sniperCount" class="count"></b></div>
+    <ul id="sniperLog" class="log"></ul>
+    <button id="sniperReset" type="button" class="ghost">Reset</button>
+  </section>
+  <footer>
+    <button id="reset" type="button" class="ghost">Reset settings</button>
+  </footer>
+  </div>
+  <script src="defaults.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
