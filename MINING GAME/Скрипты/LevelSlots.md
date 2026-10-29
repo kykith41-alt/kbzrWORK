@@ -43,6 +43,12 @@ local LOCK_IMAGE = "rbxassetid://15117261700"
 local LOCKED_BG_IMAGE = "rbxthumb://type=Asset&id=79992524792581&w=420&h=420"
 local LOCKED_BG_TRANSPARENCY = 0.9
 local LOCKED_BG_TILE = 80 -- размер одной плитки фона в пикселях (фон повторяется)
+-- градиент на фоне закрытого слота (как UIGradient у Pattern): Rotation 90 — сверху вниз
+local LOCKED_BG_GRADIENT_ROTATION = 90
+local LOCKED_BG_GRADIENT_TRANSPARENCY = NumberSequence.new({
+	NumberSequenceKeypoint.new(0, 0), -- сверху узор виден
+	NumberSequenceKeypoint.new(1, 1), -- к низу растворяется
+})
 
 local screen = Instance.new("ScreenGui")
 screen.Name = "LevelSlots"
@@ -143,6 +149,11 @@ for i, need in ipairs(SLOT_LEVELS) do
 	bg.TileSize = UDim2.fromOffset(LOCKED_BG_TILE, LOCKED_BG_TILE)
 	bg.Parent = slot
 	corner(bg, UDim.new(0, 6))
+	local bgGradient = Instance.new("UIGradient")
+	bgGradient.Color = ColorSequence.new(Color3.new(1, 1, 1))
+	bgGradient.Rotation = LOCKED_BG_GRADIENT_ROTATION
+	bgGradient.Transparency = LOCKED_BG_GRADIENT_TRANSPARENCY
+	bgGradient.Parent = bg
 
 	-- номер слота на нижнем краю
 	local badge = Instance.new("Frame")
