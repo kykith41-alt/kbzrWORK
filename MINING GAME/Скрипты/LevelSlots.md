@@ -8,12 +8,13 @@ tags: [скрипт, LocalScript]
 
 **Тип:** LocalScript · **Где:** `StarterPlayerScripts` · **Система:** [[Уровни и опыт]]
 
-6 слотов над полоской уровня с номерами снизу. Закрытый слот светлее, на нём замок (нарисован рамками) и «Lvl 12». Открывается, когда у игрока есть нужный уровень, с анимацией.
+6 слотов над полоской уровня с номерами снизу. Закрытый слот светлее, с фоновой картинкой, замком и «Lvl 12». Открывается, когда у игрока есть нужный уровень, с анимацией.
 
 ## Заметки
 - Уровни открытия: `SLOT_LEVELS = { 1, 1, 1, 12, 12, 16 }`.
 - У каждого слота (`Slot1`…`Slot6`) атрибут `Unlocked`.
 - Высота над низом экрана: `BOTTOM_OFFSET` (под полоску из [[LevelBar]]).
+- Замок: `LOCK_IMAGE` = [15117261700](https://create.roblox.com/store/asset/15117261700). Фон закрытого слота: `LOCKED_BG_IMAGE` = [79992524792581](https://create.roblox.com/store/asset/79992524792581), прозрачность 0.9, плитка `LOCKED_BG_TILE`.
 
 ## Связано
 - [[LevelBar]]
@@ -22,7 +23,7 @@ tags: [скрипт, LocalScript]
 ## Код
 ```lua
 -- Слоты над полоской уровня: 6 квадратов с номерами снизу.
--- Закрытый слот светлее, на нём замок и «Lvl 12»; открывается, когда у игрока есть нужный уровень.
+-- Закрытый слот светлее, с фоновой картинкой, замком и «Lvl 12»; открывается, когда у игрока есть нужный уровень.
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 
@@ -37,6 +38,10 @@ local FONT = Font.new("rbxasset://fonts/families/BuilderSans.json", Enum.FontWei
 local OUTLINE = Color3.fromRGB(18, 18, 18)
 local OPEN_COLOR = Color3.fromRGB(48, 48, 48)
 local LOCKED_COLOR = Color3.fromRGB(88, 88, 88)
+local LOCK_IMAGE = "rbxassetid://15117261700"
+local LOCKED_BG_IMAGE = "rbxassetid://79992524792581"
+local LOCKED_BG_TRANSPARENCY = 0.9
+local LOCKED_BG_TILE = 80 -- размер одной плитки фона в пикселях (фон повторяется)
 
 local screen = Instance.new("ScreenGui")
 screen.Name = "LevelSlots"
@@ -97,49 +102,17 @@ local function label(parent, text, size)
 	return l
 end
 
--- замок из рамок: дужка (белая с чёрной обводкой) + корпус с замочной скважиной
 local function makeLock(parent)
-	local lock = Instance.new("Frame")
+	local lock = Instance.new("ImageLabel")
 	lock.Name = "Lock"
 	lock.AnchorPoint = Vector2.new(0.5, 0)
 	lock.Position = UDim2.new(0.5, 0, 0, 5)
-	lock.Size = UDim2.fromOffset(20, 25)
+	lock.Size = UDim2.fromOffset(24, 24)
 	lock.BackgroundTransparency = 1
+	lock.Image = LOCK_IMAGE
+	lock.ScaleType = Enum.ScaleType.Fit
+	lock.ZIndex = 3
 	lock.Parent = parent
-
-	for i, look in ipairs({ { 5.5, OUTLINE }, { 3, Color3.new(1, 1, 1) } }) do
-		local shackle = Instance.new("Frame")
-		shackle.AnchorPoint = Vector2.new(0.5, 0)
-		shackle.Position = UDim2.new(0.5, 0, 0, 2)
-		shackle.Size = UDim2.fromOffset(11, 15)
-		shackle.BackgroundTransparency = 1
-		shackle.ZIndex = i
-		shackle.Parent = lock
-		corner(shackle, UDim.new(0.5, 0))
-		stroke(shackle, look[1], look[2])
-	end
-
-	local body = Instance.new("Frame")
-	body.AnchorPoint = Vector2.new(0.5, 1)
-	body.Position = UDim2.new(0.5, 0, 1, 0)
-	body.Size = UDim2.fromOffset(20, 14)
-	body.BackgroundColor3 = Color3.new(1, 1, 1)
-	body.BorderSizePixel = 0
-	body.ZIndex = 3
-	body.Parent = lock
-	corner(body, UDim.new(0, 3))
-	stroke(body, 1.5)
-
-	local hole = Instance.new("Frame")
-	hole.AnchorPoint = Vector2.new(0.5, 0.5)
-	hole.Position = UDim2.fromScale(0.5, 0.5)
-	hole.Size = UDim2.fromOffset(4, 6)
-	hole.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-	hole.BorderSizePixel = 0
-	hole.ZIndex = 4
-	hole.Parent = body
-	corner(hole, UDim.new(0.5, 0))
-
 	return lock
 end
 
@@ -157,6 +130,18 @@ for i, need in ipairs(SLOT_LEVELS) do
 	shade(slot, 0.82)
 	local pop = Instance.new("UIScale")
 	pop.Parent = slot
+
+	-- фон закрытого слота: картинка поверх цвета, повторяется плиткой
+	local bg = Instance.new("ImageLabel")
+	bg.Name = "LockedBackground"
+	bg.Size = UDim2.fromScale(1, 1)
+	bg.BackgroundTransparency = 1
+	bg.Image = LOCKED_BG_IMAGE
+	bg.ImageTransparency = LOCKED_BG_TRANSPARENCY
+	bg.ScaleType = Enum.ScaleType.Tile
+	bg.TileSize = UDim2.fromOffset(LOCKED_BG_TILE, LOCKED_BG_TILE)
+	bg.Parent = slot
+	corner(bg, UDim.new(0, 6))
 
 	-- номер слота на нижнем краю
 	local badge = Instance.new("Frame")
@@ -180,6 +165,7 @@ for i, need in ipairs(SLOT_LEVELS) do
 	lockGroup.Name = "Locked"
 	lockGroup.Size = UDim2.fromScale(1, 1)
 	lockGroup.BackgroundTransparency = 1
+	lockGroup.ZIndex = 2
 	lockGroup.Parent = slot
 	local lockScale = Instance.new("UIScale")
 	lockScale.Parent = lockGroup
@@ -190,7 +176,7 @@ for i, need in ipairs(SLOT_LEVELS) do
 	req.Size = UDim2.new(1, 0, 0, 13)
 	req.ZIndex = 4
 
-	slots[i] = { frame = slot, need = need, lock = lockGroup, lockScale = lockScale, pop = pop, unlocked = nil }
+	slots[i] = { frame = slot, need = need, lock = lockGroup, lockScale = lockScale, pop = pop, bg = bg, unlocked = nil }
 end
 
 local function setUnlocked(s, unlocked, animate)
@@ -202,6 +188,7 @@ local function setUnlocked(s, unlocked, animate)
 		s.frame.BackgroundColor3 = color
 		s.lock.Visible = not unlocked
 		s.lockScale.Scale = 1
+		s.bg.ImageTransparency = unlocked and 1 or LOCKED_BG_TRANSPARENCY
 		return
 	end
 	if unlocked then
@@ -212,12 +199,14 @@ local function setUnlocked(s, unlocked, animate)
 		end)
 		shrink:Play()
 		TweenService:Create(s.frame, TweenInfo.new(0.35), { BackgroundColor3 = color }):Play()
+		TweenService:Create(s.bg, TweenInfo.new(0.35), { ImageTransparency = 1 }):Play()
 		s.pop.Scale = 1.15
 		TweenService:Create(s.pop, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
 	else
 		s.lock.Visible = true
 		s.lockScale.Scale = 1
 		s.frame.BackgroundColor3 = color
+		s.bg.ImageTransparency = LOCKED_BG_TRANSPARENCY
 	end
 end
 
