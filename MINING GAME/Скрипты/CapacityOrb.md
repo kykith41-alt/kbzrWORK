@@ -12,7 +12,8 @@ tags: [скрипт, LocalScript]
 
 ## Заметки
 - Звук collect — список, `PlaySound` сам выбирает случайный.
-- При новом уровне шар 2 с «танцует» вокруг игрока (круг, прыжки, вращение) и возвращается на место. Настройки: `DANCE_TIME`, `DANCE_TURNS`, `DANCE_RADIUS`, `DANCE_HOPS`, `DANCE_HOP_HEIGHT`.
+- При новом уровне шар 2 с «танцует» у ног игрока (круг, прыжки, вращение) и возвращается на место. Настройки: `DANCE_TIME`, `DANCE_TURNS`, `DANCE_RADIUS`, `DANCE_HEIGHT`, `DANCE_HOPS`, `DANCE_HOP_HEIGHT`.
+- Шар едет вместе с игроком без отставания, при повороте обходит его по дуге (`TURN_SPEED`). Обновляется после камеры (`BindToRenderStep`) — не дрожит при ходьбе.
 
 ## Связано
 - [[MiningShared]]
@@ -39,11 +40,13 @@ local SCALE = 1.3                               -- кольцо лианы ра�
 local GLASS_RADIUS = 0.95
 local FOLLOW_OFFSET = Vector3.new(3.6, 3.0, 2.0) -- справа-сзади над плечом
 local BAR_W, BAR_H = 2.8, 0.3                   -- размер полоски в стадах (масштабируется вместе с шаром)
-local DANCE_TIME = 2                            -- «танец» вокруг игрока при новом уровне, секунд
-local DANCE_TURNS = 1                           -- сколько кругов вокруг игрока за танец (целое число)
-local DANCE_RADIUS = 5                          -- радиус круга, стады
+local TURN_SPEED = 6                            -- как быстро шар обходит игрока, когда тот поворачивается
+local DANCE_TIME = 2                            -- «танец» вокруг ног при новом уровне, секунд
+local DANCE_TURNS = 1                           -- сколько кругов вокруг игрока за танец
+local DANCE_RADIUS = 4                          -- радиус круга, стады
+local DANCE_HEIGHT = 1.4                        -- высота центра шара над землёй в танце, стады
 local DANCE_HOPS = 4                            -- сколько раз подпрыгивает за танец
-local DANCE_HOP_HEIGHT = 1.4                    -- высота прыжка, стады
+local DANCE_HOP_HEIGHT = 0.9                    -- высота прыжка, стады
 
 ------------------------------------------------------------------ сборка модели
 
@@ -388,20 +391,46 @@ local function smoother(x)
 	return x * x * x * (x * (x * 6 - 15) + 10)
 end
 
--- танец: круги вокруг игрока с прыжками; начинается и заканчивается ровно в обычном месте шара
-local FOLLOW_FLAT = Vector3.new(FOLLOW_OFFSET.X, 0, FOLLOW_OFFSET.Z)
-local function danceOffset(p)
-	local e = smoother(p)
-	local swell = math.sin(math.pi * p)
-	local radius = FOLLOW_FLAT.Magnitude + (DANCE_RADIUS - FOLLOW_FLAT.Magnitude) * swell
-	local flat = CFrame.Angles(0, e * DANCE_TURNS * 2 * math.pi, 0) * FOLLOW_FLAT.Unit * radius
-	local hop = math.abs(math.sin(p * math.pi * DANCE_HOPS)) * DANCE_HOP_HEIGHT * swell
-	return flat + Vector3.new(0, FOLLOW_OFFSET.Y + hop, 0)
+local function smoothstep(a, b, x)
+	local k = math.clamp((x - a) / (b - a), 0, 1)
+	return k * k * (3 - 2 * k)
 end
 
-local pos, vel = nil, Vector3.zero
-local faceDir
-RunService.RenderStepped:Connect(function(dt)
+local function yawOf(cf)
+	local look = cf.LookVector
+	return math.atan2(-look.X, -look.Z)
+end
+
+local function angleTo(from, to)
+	return (to - from + math.pi) % (2 * math.pi) - math.pi
+end
+
+-- высота земли под игроком относительно HumanoidRootPart
+local function feetOffset(character, hrp)
+	local hum = character:FindFirstChildOfClass("Humanoid")
+	if hum and hum.RigType == Enum.HumanoidRigType.R15 then
+		return -(hum.HipHeight + hrp.Size.Y / 2)
+	end
+	return -3
+end
+
+-- танец: шар опускается к ногам, делает круг с прыжками и поднимается обратно на своё место
+local FOLLOW_FLAT = Vector3.new(FOLLOW_OFFSET.X, 0, FOLLOW_OFFSET.Z)
+local function danceOffset(p, feetY)
+	local low = smoothstep(0, 0.22, p) * (1 - smoothstep(0.78, 1, p))
+	local radius = FOLLOW_FLAT.Magnitude + (DANCE_RADIUS - FOLLOW_FLAT.Magnitude) * low
+	local flat = CFrame.Angles(0, smoother(p) * DANCE_TURNS * 2 * math.pi, 0) * FOLLOW_FLAT.Unit * radius
+	local hop = math.abs(math.sin(p * math.pi * DANCE_HOPS)) * DANCE_HOP_HEIGHT * low
+	local y = FOLLOW_OFFSET.Y + (feetY + DANCE_HEIGHT - FOLLOW_OFFSET.Y) * low + hop
+	return flat + Vector3.new(0, y, 0)
+end
+
+local followYaw
+local danceYaw = 0
+local lastDanceStart = danceStart
+local leanVel = Vector3.zero
+-- после камеры: шар и обводка ставятся по уже сдвинутой камере, без дрожания при ходьбе
+RunService:BindToRenderStep("CapacityOrb", Enum.RenderPriority.Camera.Value + 1, function(dt)
 	dt = math.min(dt, 1 / 20)
 	local character = player.Character
 	local hrp = character and character:FindFirstChild("HumanoidRootPart")
@@ -413,34 +442,34 @@ RunService.RenderStepped:Connect(function(dt)
 	end
 	barGui.Enabled = true
 
-	-- пружина за игроком
+	-- шар жёстко едет вместе с игроком (без отставания), а при повороте плавно обходит его по дуге
+	local yaw = yawOf(hrp.CFrame)
+	followYaw = followYaw and followYaw + angleTo(followYaw, yaw) * (1 - math.exp(-dt * TURN_SPEED)) or yaw
+	local bob = Vector3.new(0, math.sin(t * 2.1) * 0.28, 0)
+	local pos = hrp.Position + CFrame.Angles(0, followYaw, 0) * FOLLOW_OFFSET + bob
+
+	-- танец идёт в повороте, запомненном в начале: если персонаж повернётся к блоку, круг не дёргается
+	if danceStart ~= lastDanceStart then
+		lastDanceStart = danceStart
+		danceYaw = followYaw
+	end
 	local dp = (t - danceStart) / DANCE_TIME
 	local dancing = dp >= 0 and dp < 1
-	local offset = dancing and danceOffset(dp) or FOLLOW_OFFSET
-	local target = hrp.CFrame:PointToWorldSpace(offset) + Vector3.new(0, math.sin(t * 2.1) * 0.28, 0)
-	if not pos or (pos - target).Magnitude > 50 then pos, vel = target, Vector3.zero end
+	local faceYaw = followYaw
 	if dancing then
-		-- в танце шар идёт точно по кругу, без отставания пружины
-		local newPos = pos:Lerp(target, math.clamp(dp / 0.1, 0.25, 1))
-		vel = (newPos - pos) / dt
-		pos = newPos
-	else
-		local stiffness = 55
-		local accel = (target - pos) * stiffness - vel * (2 * math.sqrt(stiffness) * 0.85)
-		vel += accel * dt
-		pos += vel * dt
+		local dancePos = hrp.Position + CFrame.Angles(0, danceYaw, 0) * danceOffset(dp, feetOffset(character, hrp)) + bob * 0.3
+		-- в конце плавно передаём шар обычному месту (вдруг игрок успел повернуться)
+		local w = 1 - smoothstep(0.85, 1, dp)
+		pos = pos:Lerp(dancePos, w)
+		faceYaw = followYaw + angleTo(followYaw, danceYaw) * w
 	end
 
-	-- смотрит на камеру, наклон по скорости, лёгкое покачивание
-	-- разворот как у персонажа (лицом назад, к камере за спиной), плавно догоняет
-	local fwd = hrp.CFrame.LookVector
-	fwd = Vector3.new(fwd.X, 0, fwd.Z)
-	faceDir = faceDir and faceDir:Lerp(fwd, 1 - math.exp(-dt * 4)) or fwd
-	if faceDir.Magnitude < 0.05 then faceDir = fwd end
-	local face = CFrame.lookAt(pos, pos + faceDir.Unit)
-	local localVel = face:VectorToObjectSpace(vel)
-	local roll = math.clamp(localVel.X * 0.05, -0.45, 0.45)
-	local pitch = math.clamp(-localVel.Z * 0.03, -0.3, 0.3)
+	-- смотрит туда же, куда игрок (лицом назад, к камере за спиной); наклон по скорости, лёгкое покачивание
+	local face = CFrame.new(pos) * CFrame.Angles(0, faceYaw, 0)
+	leanVel = leanVel:Lerp(hrp.AssemblyLinearVelocity, 1 - math.exp(-dt * 6))
+	local localVel = face:VectorToObjectSpace(leanVel)
+	local roll = math.clamp(localVel.X * 0.03, -0.35, 0.35)
+	local pitch = math.clamp(-localVel.Z * 0.02, -0.25, 0.25)
 	local wobble = CFrame.Angles(math.sin(t * 1.3) * 0.06 + pitch, math.sin(t * 0.7) * 0.28, math.sin(t * 1.1) * 0.05 + roll)
 	local shake = t < shakeUntil and CFrame.new((math.random() - 0.5) * 0.25, (math.random() - 0.5) * 0.25, 0) or CFrame.identity
 	local danceSpin = dancing and CFrame.Angles(0, smoother(dp) * DANCE_TURNS * 4 * math.pi, math.sin(dp * math.pi * DANCE_HOPS * 2) * 0.25 * math.sin(math.pi * dp)) or CFrame.identity
