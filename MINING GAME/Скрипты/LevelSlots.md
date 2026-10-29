@@ -39,7 +39,8 @@ local OUTLINE = Color3.fromRGB(18, 18, 18)
 local OPEN_COLOR = Color3.fromRGB(48, 48, 48)
 local LOCKED_COLOR = Color3.fromRGB(88, 88, 88)
 local LOCK_IMAGE = "rbxassetid://15117261700"
-local LOCKED_BG_IMAGE = "rbxassetid://79992524792581"
+-- через rbxthumb: картинка показывается, даже если это ID декали (Decal), а не самой картинки
+local LOCKED_BG_IMAGE = "rbxthumb://type=Asset&id=79992524792581&w=420&h=420"
 local LOCKED_BG_TRANSPARENCY = 0.9
 local LOCKED_BG_TILE = 80 -- размер одной плитки фона в пикселях (фон повторяется)
 
