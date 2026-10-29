@@ -12,11 +12,13 @@ tags: [скрипт, LocalScript]
 
 ## Заметки
 - Звук collect — список, `PlaySound` сам выбирает случайный.
+- При новом уровне шар 2 с «танцует» вокруг игрока (круг, прыжки, вращение) и возвращается на место. Настройки: `DANCE_TIME`, `DANCE_TURNS`, `DANCE_RADIUS`, `DANCE_HOPS`, `DANCE_HOP_HEIGHT`.
 
 ## Связано
 - [[MiningShared]]
 - [[MineServer]]
 - [[MiningHUD]]
+- [[LevelUpFX]]
 - [[Звуки]]
 
 ## Код
@@ -37,6 +39,11 @@ local SCALE = 1.3                               -- кольцо лианы ра�
 local GLASS_RADIUS = 0.95
 local FOLLOW_OFFSET = Vector3.new(3.6, 3.0, 2.0) -- справа-сзади над плечом
 local BAR_W, BAR_H = 2.8, 0.3                   -- размер полоски в стадах (масштабируется вместе с шаром)
+local DANCE_TIME = 2                            -- «танец» вокруг игрока при новом уровне, секунд
+local DANCE_TURNS = 1                           -- сколько кругов вокруг игрока за танец (целое число)
+local DANCE_RADIUS = 5                          -- радиус круга, стады
+local DANCE_HOPS = 4                            -- сколько раз подпрыгивает за танец
+local DANCE_HOP_HEIGHT = 1.4                    -- высота прыжка, стады
 
 ------------------------------------------------------------------ сборка модели
 
@@ -245,6 +252,7 @@ local shownCount = player:GetAttribute("Blocks") or 0
 local pending = 0
 local bounceStart = -10   -- упругое «раздувание» при сборе
 local shakeUntil = 0
+local danceStart = -10   -- «танец» вокруг игрока при новом уровне
 
 local function refreshBar(animate)
 	local max = player:GetAttribute("MaxCapacity") or Shared.MAX_CAPACITY
@@ -355,6 +363,18 @@ Remotes.Full.OnClientEvent:Connect(function()
 	task.delay(0.5, function() barStroke.Color = STROKE_COLOR end)
 end)
 
+local lastLevel = player:GetAttribute("Level")
+player:GetAttributeChangedSignal("Level"):Connect(function()
+	local level = player:GetAttribute("Level")
+	if lastLevel and level and level > lastLevel then
+		danceStart = os.clock()
+		for _, e in ipairs(parts) do
+			if e.leaf then e.flutter = 1 end
+		end
+	end
+	lastLevel = level
+end)
+
 showBlock(player:GetAttribute("LastBlock"), false)
 refreshBar(false)
 
@@ -362,6 +382,21 @@ refreshBar(false)
 
 local function scaled(cf, s)
 	return CFrame.new(cf.Position * s) * cf.Rotation
+end
+
+local function smoother(x)
+	return x * x * x * (x * (x * 6 - 15) + 10)
+end
+
+-- танец: круги вокруг игрока с прыжками; начинается и заканчивается ровно в обычном месте шара
+local FOLLOW_FLAT = Vector3.new(FOLLOW_OFFSET.X, 0, FOLLOW_OFFSET.Z)
+local function danceOffset(p)
+	local e = smoother(p)
+	local swell = math.sin(math.pi * p)
+	local radius = FOLLOW_FLAT.Magnitude + (DANCE_RADIUS - FOLLOW_FLAT.Magnitude) * swell
+	local flat = CFrame.Angles(0, e * DANCE_TURNS * 2 * math.pi, 0) * FOLLOW_FLAT.Unit * radius
+	local hop = math.abs(math.sin(p * math.pi * DANCE_HOPS)) * DANCE_HOP_HEIGHT * swell
+	return flat + Vector3.new(0, FOLLOW_OFFSET.Y + hop, 0)
 end
 
 local pos, vel = nil, Vector3.zero
@@ -379,12 +414,22 @@ RunService.RenderStepped:Connect(function(dt)
 	barGui.Enabled = true
 
 	-- пружина за игроком
-	local target = hrp.CFrame:PointToWorldSpace(FOLLOW_OFFSET) + Vector3.new(0, math.sin(t * 2.1) * 0.28, 0)
+	local dp = (t - danceStart) / DANCE_TIME
+	local dancing = dp >= 0 and dp < 1
+	local offset = dancing and danceOffset(dp) or FOLLOW_OFFSET
+	local target = hrp.CFrame:PointToWorldSpace(offset) + Vector3.new(0, math.sin(t * 2.1) * 0.28, 0)
 	if not pos or (pos - target).Magnitude > 50 then pos, vel = target, Vector3.zero end
-	local stiffness = 55
-	local accel = (target - pos) * stiffness - vel * (2 * math.sqrt(stiffness) * 0.85)
-	vel += accel * dt
-	pos += vel * dt
+	if dancing then
+		-- в танце шар идёт точно по кругу, без отставания пружины
+		local newPos = pos:Lerp(target, math.clamp(dp / 0.1, 0.25, 1))
+		vel = (newPos - pos) / dt
+		pos = newPos
+	else
+		local stiffness = 55
+		local accel = (target - pos) * stiffness - vel * (2 * math.sqrt(stiffness) * 0.85)
+		vel += accel * dt
+		pos += vel * dt
+	end
 
 	-- смотрит на камеру, наклон по скорости, лёгкое покачивание
 	-- разворот как у персонажа (лицом назад, к камере за спиной), плавно догоняет
@@ -398,11 +443,15 @@ RunService.RenderStepped:Connect(function(dt)
 	local pitch = math.clamp(-localVel.Z * 0.03, -0.3, 0.3)
 	local wobble = CFrame.Angles(math.sin(t * 1.3) * 0.06 + pitch, math.sin(t * 0.7) * 0.28, math.sin(t * 1.1) * 0.05 + roll)
 	local shake = t < shakeUntil and CFrame.new((math.random() - 0.5) * 0.25, (math.random() - 0.5) * 0.25, 0) or CFrame.identity
-	local root = face * shake * wobble
+	local danceSpin = dancing and CFrame.Angles(0, smoother(dp) * DANCE_TURNS * 4 * math.pi, math.sin(dp * math.pi * DANCE_HOPS * 2) * 0.25 * math.sin(math.pi * dp)) or CFrame.identity
+	local root = face * shake * danceSpin * wobble
 
 	-- упругое раздувание при сборе
 	local bt = t - bounceStart
 	local s = SCALE * (1 + (bt < 1.2 and math.exp(-bt * 6) * math.sin(bt * 22) * 0.22 or 0)) * (1 + math.sin(t * 2.4) * 0.012)
+	if dancing then
+		s *= 1 + math.sin(math.pi * dp) * (0.12 + math.abs(math.sin(dp * math.pi * DANCE_HOPS)) * 0.08)
+	end
 
 	for _, e in ipairs(parts) do
 		local sway = CFrame.identity

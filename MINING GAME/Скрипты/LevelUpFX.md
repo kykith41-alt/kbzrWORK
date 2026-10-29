@@ -17,6 +17,7 @@ tags: [скрипт, LocalScript]
 
 ## Связано
 - [[LevelBar]]
+- [[CapacityOrb]]
 - [[MiningShared]]
 - [[Эффекты частиц]]
 - [[Звуки]]
