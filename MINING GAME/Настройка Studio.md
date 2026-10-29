@@ -16,7 +16,7 @@ tags: [гайд]
 - Старый серверный `LevelUpFX` удалить (теперь он LocalScript).
 
 ## StarterPlayerScripts
-- [[MiningEffects]], [[MiningHUD]], [[LevelBar]], [[LevelUpFX]], [[CapacityOrb]], [[PickaxeClient]], [[PickaxeSheath]], [[NameplateFX]], [[MineRangeRing]], [[FootstepSounds]], [[WeatherClient]], [[WeatherTestGui]].
+- [[MiningEffects]], [[MiningHUD]], [[LevelBar]], [[LevelSlots]], [[LevelUpFX]], [[CapacityOrb]], [[PickaxeClient]], [[PickaxeSheath]], [[NameplateFX]], [[MineRangeRing]], [[FootstepSounds]], [[WeatherClient]], [[WeatherTestGui]].
 - Пустой LocalScript `RbxCharacterSounds` — выключает стандартные звуки персонажа Roblox.
 - Папка `Weather` с подпапками `Sunny`, `Rain`, `Rainstorm` (в каждой Effects и Properties).
 

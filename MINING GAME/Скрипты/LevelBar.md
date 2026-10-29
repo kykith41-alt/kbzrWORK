@@ -15,6 +15,7 @@ tags: [скрипт, LocalScript]
 
 ## Связано
 - [[MiningShared]]
+- [[LevelSlots]]
 - [[LevelUpFX]]
 - [[MineServer]]
 
